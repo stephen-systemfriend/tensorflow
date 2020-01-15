@@ -43,6 +43,7 @@ limitations under the License.
 #include "tensorflow/lite/delegates/gpu/common/shape.h"
 #include "tensorflow/lite/delegates/gpu/common/status.h"
 #include "tensorflow/lite/delegates/gpu/common/tensor.h"
+#include "tensorflow/lite/delegates/gpu/common/transformations/general_transformations.h"
 #include "tensorflow/lite/kernels/kernel_util.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/util.h"
@@ -1211,6 +1212,7 @@ class FullyConnectedOperationParser : public TFLiteOperationParser {
       auto& reshape = node;
       conv = graph->NewNode();  // reset conv pointer!
       Value<TensorRef<BHWC>>* reshaped_value = graph->NewValue();
+      reshaped_value->tensor.type = DataType::FLOAT32;
       reshaped_value->tensor.shape = BHWC(1, 1, 1, weights.shape.w);
       RETURN_IF_ERROR(graph->SetProducer(reshape->id, reshaped_value->id));
       reshape->operation.type = ToString(OperationType::RESHAPE);
@@ -2332,6 +2334,38 @@ class TransformLandmarksOperationParser : public TFLiteOperationParser {
  private:
 };
 
+class Landmarks2TransformMatrixOperationParser : public TFLiteOperationParser {
+ public:
+  Status IsSupported(const TfLiteContext* context,
+                     const TfLiteNode* tflite_node,
+                     const TfLiteRegistration* registration) final {
+    return CheckInputsOutputs(context, tflite_node, /*inputs=*/1,
+                              /*outputs=*/1);
+  }
+
+  Status Parse(const TfLiteNode* tflite_node,
+               const TfLiteRegistration* registration, GraphFloat32* graph,
+               ObjectReader* reader) final {
+    Node* node = graph->NewNode();
+    RETURN_IF_ERROR(reader->AddInput(node, 0));  // landmarks
+    RETURN_IF_ERROR(reader->AddOutputs(node));   // transform matrix
+
+    const std::string op_name = "landmarks_to_transform_matrix";
+    node->operation.type = op_name;
+    BHWC output_shape;
+    RETURN_IF_ERROR(
+        ParseCustomAttributes(op_name, tflite_node->custom_initial_data,
+                              tflite_node->custom_initial_data_size,
+                              &(node->operation.attributes), &output_shape));
+
+    auto output_value = graph->FindOutputs(node->id)[0];
+    output_value->tensor.shape = output_shape;
+    return OkStatus();
+  }
+
+ private:
+};
+
 class UnsupportedOperationParser : public TFLiteOperationParser {
  public:
   Status IsSupported(const TfLiteContext* context,
@@ -2350,7 +2384,6 @@ class UnsupportedOperationParser : public TFLiteOperationParser {
 std::unique_ptr<TFLiteOperationParser> NewOperationParser(
     const TfLiteRegistration* registration) {
   const auto builtin_code = registration->builtin_code;
-  const absl::string_view custom_name = registration->custom_name;
   switch (builtin_code) {
     case kTfLiteBuiltinAbs:
       return absl::make_unique<ElementwiseOperationParser>(OperationType::ABS);
@@ -2428,6 +2461,7 @@ std::unique_ptr<TFLiteOperationParser> NewOperationParser(
       return absl::make_unique<TransposeConvOperationParser>();
 
     case kTfLiteBuiltinCustom:
+      const absl::string_view custom_name = registration->custom_name;
       if (custom_name == "Convolution2DTransposeBias") {
         return absl::make_unique<Convolution2DTransposeBiasParser>();
       }
@@ -2447,6 +2481,10 @@ std::unique_ptr<TFLiteOperationParser> NewOperationParser(
 
       if (custom_name == "TransformLandmarks") {
         return absl::make_unique<TransformLandmarksOperationParser>();
+      }
+
+      if (custom_name == "Landmarks2TransformMatrix") {
+        return absl::make_unique<Landmarks2TransformMatrixOperationParser>();
       }
 
       break;
@@ -2709,6 +2747,20 @@ Status BuildModel(TfLiteContext* context,
       return InternalError(absl::StrCat(GetOpNameByRegistration(registration),
                                         ": ", status.error_message()));
     }
+  }
+  return OkStatus();
+}
+
+Status BuildFinalModel(TfLiteContext* context,
+                       const TfLiteDelegateParams* delegate_params,
+                       GraphFloat32* graph) {
+  RETURN_IF_ERROR(BuildModel(context, delegate_params, graph));
+
+  // Apply general transformations on the graph.
+  NullTransformationReporter reporter;
+  ModelTransformer transformer(graph, &reporter);
+  if (!ApplyGeneralTransformations(&transformer)) {
+    return InternalError("Graph general transformations failed");
   }
   return OkStatus();
 }

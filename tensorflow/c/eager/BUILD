@@ -26,7 +26,6 @@ tf_cuda_library(
         "c_api.cc",
         "c_api_debug.cc",
         "c_api_experimental.h",
-        "c_api_internal.cc",
         "c_api_internal.h",
         "tensor_handle_interface.h",
     ],
@@ -90,7 +89,7 @@ tf_cuda_library(
 )
 
 filegroup(
-    name = "pywrap_eager_hdrs",
+    name = "pywrap_required_hdrs",
     srcs = [
         "c_api_experimental.h",
         "c_api_internal.h",

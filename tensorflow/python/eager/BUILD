@@ -57,7 +57,7 @@ cc_library(
 )
 
 filegroup(
-    name = "pywrap_eager_hdrs",
+    name = "pywrap_required_hdrs",
     srcs = [
         "pywrap_tensor_conversion.h",
         "pywrap_tfe.h",
@@ -439,6 +439,7 @@ py_library(
     deps = [
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python:framework_ops",
+        "//tensorflow/python:op_callbacks",
         "//tensorflow/python:tensor_shape",
     ],
 )

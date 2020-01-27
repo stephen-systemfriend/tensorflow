@@ -1731,10 +1731,9 @@ ShapeInference::InferDegenerateDimensionBroadcastShape(HloOpcode operation,
   const int64 kernel_output_features =
       rhs.dimensions(dnums.kernel_output_feature_dimension());
 
-  if (batch_group_count > 1 &&
-      kernel_output_features % batch_group_count != 0) {
+  if (kernel_output_features % batch_group_count != 0) {
     return InvalidArgument(
-        "Expected output feature dimension size (value %d) to be equal to "
+        "Expected output feature dimension size (value %d) to be a multiple of "
         "batch group count %d; got <conv>(%s, %s)\n"
         "Dimension numbers: {%s}.",
         kernel_output_features, batch_group_count, ShapeUtil::HumanString(lhs),
@@ -1805,12 +1804,6 @@ ShapeInference::InferDegenerateDimensionBroadcastShape(HloOpcode operation,
   std::vector<int64> dimensions(num_dims);
   dimensions[dnums.output_batch_dimension()] = input_batch / batch_group_count;
   dimensions[dnums.output_feature_dimension()] = kernel_output_features;
-
-  if (batch_group_count > 1) {
-    dimensions[dnums.output_batch_dimension()] =
-        kernel_output_features / batch_group_count;
-    dimensions[dnums.output_feature_dimension()] = batch_group_count;
-  }
 
   for (int i = 0; i < num_spatial_dims; ++i) {
     dimensions[dnums.output_spatial_dimensions(i)] =

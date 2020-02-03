@@ -18,7 +18,10 @@ limitations under the License.
 #include <vector>
 
 #include "absl/strings/string_view.h"
+#include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/profiler/protobuf/xplane.pb.h"
+#include "tensorflow/core/profiler/utils/xplane_builder.h"
+#include "tensorflow/core/profiler/utils/xplane_schema.h"
 
 namespace tensorflow {
 namespace profiler {
@@ -32,6 +35,26 @@ std::vector<const XPlane*> FindPlanesWithPrefix(const XSpace& space,
 
 // Returns the plane with the given name, create it if necessary.
 XPlane* GetOrCreatePlane(XSpace* space, absl::string_view name);
+
+// Returns true if event is nested by parent.
+bool IsNested(const tensorflow::profiler::XEvent& event,
+              const tensorflow::profiler::XEvent& parent);
+
+void AddOrUpdateIntStat(int64 metadata_id, int64 value,
+                        tensorflow::profiler::XEvent* event);
+
+void AddOrUpdateStrStat(int64 metadata_id, absl::string_view value,
+                        tensorflow::profiler::XEvent* event);
+
+void CreateXEvent(
+    XPlaneBuilder* plane_builder, XLineBuilder* line_builder,
+    absl::string_view event_name, int64 offset_ps, int64 duration_ps,
+    const absl::flat_hash_map<StatType, int64 /*stat_value*/>& stats);
+
+void CreateXEvent(
+    XPlaneBuilder* plane_builder, XLineBuilder* line_builder,
+    HostEventType event_type, int64 offset_ps, int64 duration_ps,
+    const absl::flat_hash_map<StatType, int64 /*stat_value*/>& stats);
 
 }  // namespace profiler
 }  // namespace tensorflow

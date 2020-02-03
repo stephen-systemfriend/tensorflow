@@ -140,7 +140,6 @@ load(
 )
 load("@local_config_cuda//cuda:build_defs.bzl", "if_cuda")
 load("@local_config_tensorrt//:build_defs.bzl", "if_tensorrt")
-load("@io_bazel_rules_closure//closure:defs.bzl", "closure_proto_library")
 load(
     "//third_party/mkl:build_defs.bzl",
     "if_mkl",
@@ -183,12 +182,11 @@ package_group(name = "experimental_access")
 # filegroup; e.g.  ones with individual proto_library targets.
 # LINT.IfChange
 COMMON_PROTO_SRCS = [
-    "example/example.proto",
-    "example/feature.proto",
     "protobuf/bfc_memory_map.proto",
     "protobuf/config.proto",
     "protobuf/cluster.proto",
     "protobuf/debug.proto",
+    "protobuf/device_filters.proto",
     "protobuf/device_properties.proto",
     "protobuf/graph_debug_info.proto",
     "protobuf/queue_runner.proto",
@@ -197,6 +195,11 @@ COMMON_PROTO_SRCS = [
     "protobuf/saver.proto",
     "protobuf/verifier_config.proto",
     "protobuf/trace_events.proto",
+]
+
+EXAMPLE_PROTO_SRCS = [
+    "//tensorflow/core/example:example.proto",
+    "//tensorflow/core/example:feature.proto",
 ]
 
 UTIL_PROTO_SRCS = [
@@ -242,7 +245,7 @@ ERROR_CODES_PROTO_SRCS = [
 ]
 # LINT.ThenChange(//tensorflow/core/android_proto_config.asciipb)
 
-CORE_PROTO_SRCS = COMMON_PROTO_SRCS + FRAMEWORK_PROTO_SRCS + UTIL_PROTO_SRCS + PROFILER_PROTO_SRCS + ERROR_CODES_PROTO_SRCS
+CORE_PROTO_SRCS = COMMON_PROTO_SRCS + EXAMPLE_PROTO_SRCS + FRAMEWORK_PROTO_SRCS + UTIL_PROTO_SRCS + PROFILER_PROTO_SRCS + ERROR_CODES_PROTO_SRCS
 
 tf_proto_library(
     name = "protos_all",
@@ -252,6 +255,7 @@ tf_proto_library(
     protodeps = [
         ":core_protos",
         ":error_codes_proto_impl",
+        "//tensorflow/core/example:protos_all",
         "//tensorflow/core/framework:protos_all",
         "//tensorflow/core/lib/core:error_codes_proto",
         "//tensorflow/core/util:protos_all",
@@ -266,23 +270,14 @@ tf_jspb_proto_library(
     deps = [":protos_all"],
 )
 
-proto_library(
+alias(
     name = "example_protos",
-    srcs = [
-        "example/example.proto",
-        "example/feature.proto",
-    ],
+    actual = "//tensorflow/core/example:example_protos",
     visibility = ["//visibility:public"],
 )
 
 java_proto_library(
     name = "example_java_proto",
-    visibility = ["//visibility:public"],
-    deps = [":example_protos"],
-)
-
-closure_proto_library(
-    name = "example_protos_closure",
     visibility = ["//visibility:public"],
     deps = [":example_protos"],
 )
@@ -397,17 +392,10 @@ cc_library(
     ],
 )
 
-cc_library(
+alias(
     name = "feature_util",
-    srcs = ["example/feature_util.cc"],
-    hdrs = ["example/feature_util.h"],
+    actual = "//tensorflow/core/example:feature_util",
     visibility = ["//visibility:public"],
-    deps = [
-        ":core_stringpiece",
-        ":lib_proto_parsing",
-        ":protos_all_cc",
-    ],
-    alwayslink = 1,
 )
 
 # DEPRECATED: use platform:stringpiece instead.
@@ -460,7 +448,7 @@ cc_library(
 tf_cuda_library(
     name = "framework",
     hdrs = [
-        "example/feature_util.h",
+        "//tensorflow/core/example:feature_util.h",
         "//tensorflow/core/framework:allocator.h",
         "//tensorflow/core/framework:allocator_registry.h",
         "//tensorflow/core/framework:attr_value_util.h",
@@ -523,13 +511,9 @@ tf_cuda_library(
         "//tensorflow/core/framework:variant_tensor_data.h",
         "//tensorflow/core/util/sparse:framework_group",
         "//tensorflow/core/util:framework_srcs",
+        "//tensorflow/core/util:memmapped_file_system_hdrs",
         "//tensorflow/core/public:version.h",
-    ] + select({
-        "//tensorflow:windows": [],
-        "//conditions:default": [
-            "//tensorflow/core/util:memmapped_file_system_hdrs",
-        ],
-    }) + if_mkl([
+    ] + if_mkl([
         "//tensorflow/core/util:mkl_util_hdrs",
     ]),
     visibility = ["//visibility:public"],
@@ -655,6 +639,7 @@ tf_gen_op_libs(
         "parsing_ops",
         "random_grad",
         "random_ops",
+        "special_math_ops",
         "stateful_random_ops",
         "remote_fused_graph_ops",
         "rnn_ops",
@@ -882,6 +867,7 @@ cc_library(
         ":ragged_ops",
         ":random_ops_op_lib",
         ":rnn_ops_op_lib",
+        ":special_math_ops_op_lib",
         ":stateful_random_ops_op_lib",
         ":remote_fused_graph_ops_op_lib",
         ":resource_variable_ops_op_lib",
@@ -1277,6 +1263,7 @@ filegroup(
     name = "mobile_srcs_no_runtime",
     srcs = [
         "//tensorflow/compiler/jit:mobile_srcs_no_runtime",
+        "//tensorflow/core/example:mobile_srcs_no_runtime",
         "//tensorflow/core/framework:attr_value_proto_text_srcs",
         "//tensorflow/core/framework:mobile_srcs_no_runtime",
         "//tensorflow/core/lib/bfloat16:mobile_srcs_no_runtime",
@@ -1617,20 +1604,13 @@ cc_library(
     [
         alias(
             name = "example_%s_pyclif%s" % (proto_name, target_suffix),
-            actual = ":example/%s_pyclif%s" % (proto_name, target_suffix),
+            actual = "//tensorflow/core/example:%s_pyclif%s" % (proto_name, target_suffix),
             visibility = ["//visibility:public"],
         )
         for target_suffix in [
             "",
             "_pb2",
         ]
-    ] + [
-        tf_pyclif_proto_library(
-            name = "example/%s_pyclif" % proto_name,
-            proto_lib = ":protos_all",
-            proto_srcfile = "example/%s.proto" % proto_name,
-            visibility = ["//visibility:public"],
-        ),
     ]
     for proto_name in [
         "example",
@@ -2127,7 +2107,6 @@ tf_proto_library(
         #
         # Note that some protos are in neither core_proto_srcs nor this
         # filegroup; e.g. ones with individual proto_library targets.
-        "example/example_parser_configuration.proto",
         "protobuf/control_flow.proto",
         # TODO(ebrevdo): Re-enable once CriticalSection is in core.
         # "protobuf/critical_section.proto",
@@ -2147,6 +2126,7 @@ tf_proto_library(
     make_default_target_header_only = True,
     protodeps = [
         ":error_codes_proto_impl",
+        "//tensorflow/core/example:protos_all",
         "//tensorflow/core/framework:protos_all",
         "//tensorflow/core/lib/core:error_codes_proto",
         "//tensorflow/core/profiler/protobuf:xplane_proto",
@@ -2171,21 +2151,9 @@ FRAMEWORK_INTERNAL_PRIVATE_HEADERS = [
     "//tensorflow/core/util/sparse:framework_internal_private_headers_group",
     "//tensorflow/core/framework:framework_internal_private_hdrs",
     "//tensorflow/core/util:framework_internal_private_hdrs",
-] + glob(
-    [
-        "example/**/*.h",
-    ],
-    exclude = [
-        "**/*test*",
-        "**/*main.cc",
-        "example/example_parser_configuration.*",
-    ],
-) + select({
-    "//tensorflow:windows": [],
-    "//conditions:default": [
-        "//tensorflow/core/util:memmapped_file_system_hdrs",
-    ],
-})
+    "//tensorflow/core/util:memmapped_file_system_hdrs",
+    "//tensorflow/core/example:feature_util.h",
+]
 
 FRAMEWORK_INTERNAL_PUBLIC_HEADERS = [
     "//tensorflow/core/framework:model.h",  # only needed for tests
@@ -2253,23 +2221,16 @@ tf_cuda_library(
         "//tensorflow/core/framework:framework_internal_impl_srcs",
         "//tensorflow/core/graph:framework_internal_impl_srcs",
         "//tensorflow/core/util:framework_internal_impl_srcs",
+        "//tensorflow/core/util:memmapped_file_system_srcs",
         "//tensorflow/core/util/sparse:framework_internal_impl_group",
     ] + glob(
         [
-            "example/**/*.cc",
         ],
         exclude = [
             "**/*test*",
             "**/*main.cc",
-            "example/example_parser_configuration.*",
-            "example/feature_util.cc",
         ],
-    ) + select({
-        "//tensorflow:windows": [],
-        "//conditions:default": [
-            "//tensorflow/core/util:memmapped_file_system_srcs",
-        ],
-    }),
+    ),
     hdrs = FRAMEWORK_INTERNAL_PUBLIC_HEADERS,
     copts = tf_copts(),
     linkopts = select({
@@ -2293,6 +2254,7 @@ tf_cuda_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "//third_party/eigen3",
+        "//tensorflow/core/example:feature_util",
         "//tensorflow/core/framework:allocator",
         "//tensorflow/core/framework:allocator_registry_impl",
         "//tensorflow/core/framework:attr_value_proto_text",
@@ -2607,6 +2569,7 @@ tf_cuda_library(
         ":lib",
         ":lib_internal",
         ":protos_all_cc",
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
@@ -2743,22 +2706,10 @@ tf_cuda_library(
     alwayslink = 1,
 )
 
-cc_library(
+alias(
     name = "example_parser_configuration",
-    srcs = ["example/example_parser_configuration.cc"],
-    hdrs = ["example/example_parser_configuration.h"],
-    copts = tf_copts(),
-    linkstatic = 1,
+    actual = "//tensorflow/core/example:example_parser_configuration",
     visibility = ["//visibility:public"],
-    deps = [
-        ":core_cpu",
-        ":core_cpu_internal",
-        ":framework",
-        ":lib",
-        ":lib_internal",
-        ":protos_all_cc",
-    ],
-    alwayslink = 1,
 )
 
 tf_proto_library_cc(
@@ -3171,6 +3122,7 @@ tf_cc_tests(
         "common_runtime/buf_rendezvous_test.cc",
         "common_runtime/collective_executor_mgr_test.cc",
         "common_runtime/collective_rma_local_test.cc",
+        "common_runtime/device_mgr_test.cc",
         "common_runtime/device_resolver_local_test.cc",
         "common_runtime/device_set_test.cc",
         "common_runtime/dynamic_device_mgr_test.cc",
@@ -3181,7 +3133,7 @@ tf_cc_tests(
         "common_runtime/placer_test.cc",
         "common_runtime/session_test.cc",
         "common_runtime/threadpool_device_test.cc",
-        "example/feature_util_test.cc",
+        "//tensorflow/core/example:feature_util_test.cc",
         "//tensorflow/core/graph:algorithm_test.cc",
         "//tensorflow/core/graph:control_flow_test.cc",
         "//tensorflow/core/graph:edgeset_test.cc",
@@ -3597,7 +3549,7 @@ tf_cc_test(
     size = "small",
     srcs = ["common_runtime/constant_folding_test.cc"],
     linkstatic = tf_kernel_tests_linkstatic(),
-    tags = tf_cuda_tests_tags() + ["no_rocm"],
+    tags = tf_cuda_tests_tags(),
     deps = [
         ":core",
         ":core_cpu",
@@ -4252,30 +4204,6 @@ tf_cc_test(
 )
 
 tf_cc_test(
-    name = "example_example_parser_configuration_test",
-    size = "small",
-    srcs = ["example/example_parser_configuration_test.cc"],
-    data = [":example_parser_configuration_testdata"],
-    deps = [
-        ":core_cpu",
-        ":core_cpu_internal",
-        ":direct_session_internal",
-        ":example_parser_configuration",
-        ":framework",
-        ":framework_internal",
-        ":lib",
-        ":lib_internal",
-        ":ops",
-        ":protos_all_cc",
-        ":test",
-        ":test_main",
-        ":testlib",
-        "//tensorflow/cc:cc_ops",
-        "//tensorflow/core/kernels:example_parsing_ops",
-    ],
-)
-
-tf_cc_test(
     name = "common_runtime_input_colocation_exemption_registry_test",
     size = "small",
     srcs = ["common_runtime/input_colocation_exemption_registry_test.cc"],
@@ -4466,13 +4394,6 @@ filegroup(
         "lib/lmdb/testdata/data_bigendian.mdb",
     ],
     visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "example_parser_configuration_testdata",
-    srcs = [
-        "example/testdata/parse_example_graph_def.pbtxt",
-    ],
 )
 
 alias(
